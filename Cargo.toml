@@ -1,0 +1,44 @@
+[package]
+name = "rust-to-prod"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# We could use any path here, but we are following the community convention
+# We could specify the library name useing the `name` field. If unspecified,
+# cargo will default to `package.name`, which is what we want
+path = "src/lib.rs"
+
+# Notice the double square brackets: it's an array in TOML's syntax.
+# We can only have one library in a project, but we can have multiple binaries!
+# If you want to manage multiple libraries in the same repository
+# have a look at the workspace feature - we'll cover this later on.
+[[bin]]
+path = "src/main.rs"
+name = "rust-to-prod"
+
+[dependencies]
+actix-web = "4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+config = "0.13"
+
+# Using a table-like toml syntax to avoid a super-long line
+[dependencies.sqlx]
+version = "0.6"
+default-features = false
+features = [
+  "runtime-tokio-rustls",
+  "macros",
+  "postgres",
+  "uuid",
+  "chrono",
+  "migrate",
+]
+
+# Dev dependencies are used exclusively when running tests or examples
+# They do not get included in the final application binary!
+[dev-dependencies]
+reqwest = "0.11"
