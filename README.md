@@ -23,3 +23,19 @@ Parameterized testing
 Command Line Interface to manage database migrations
 
 `cargo install --version="~0.6" sqlx-cli --no-default-features --features rustls,postgres`
+
+### cargo-udeps
+
+Scans Cargo.toml and checks if all crates are actually being used
+
+`cargo install cargo-udeps`
+
+`cargo +nightly udeps`
+
+### bunyan
+
+Prettifies outputted JSON
+
+`cargo install bunyan`
+
+`TEST_LOG=true cargo test | bunyan`
