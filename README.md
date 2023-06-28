@@ -4,6 +4,14 @@
 
 - `cargo watch -x run` to run the program
 
+## Deployment / Docker
+
+### SQLx
+
+Must first prepare sqlx for compile checks
+
+`cargo sqlx prepare -- --lib`
+
 ## Tools
 
 ### cargo-expand
