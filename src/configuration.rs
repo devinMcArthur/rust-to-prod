@@ -5,13 +5,13 @@ use sqlx::{
     ConnectOptions,
 };
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct ApplicationSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub port: u16,
@@ -51,7 +51,9 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
         .build()?;
 
     // Try to convert the configuration values it read into our Settings type
-    settings.try_deserialize::<Settings>()
+    let deserialized = settings.try_deserialize::<Settings>();
+    tracing::debug!("Settings: {:?}", deserialized);
+    deserialized
 }
 
 /// The possible runtime environment for our application
@@ -85,7 +87,7 @@ impl TryFrom<String> for Environment {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct DatabaseSettings {
     pub username: String,
     pub password: Secret<String>,

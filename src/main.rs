@@ -8,7 +8,7 @@ use rust_to_prod::{
 use sqlx::postgres::PgPoolOptions;
 
 #[tokio::main]
-async fn main() -> Result<(), std::io::Error> {
+async fn main() -> std::io::Result<()> {
     let subscriber = get_subscriber("rust-to-prod".into(), "info".into(), std::io::stdout);
     init_subscriber(subscriber);
 
@@ -26,5 +26,7 @@ async fn main() -> Result<(), std::io::Error> {
     let listener = TcpListener::bind(address)?;
     // Bubble up the io::Error if we failed to bind the address
     // Otherwise call .await on our Server
-    run(listener, connection_pool)?.await
+    run(listener, connection_pool)?.await?;
+
+    Ok(())
 }
