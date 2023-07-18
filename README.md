@@ -4,6 +4,10 @@
 
 - `cargo watch -x run` to run the program
 
+### Local Database
+
+- `./scripts/init_db.sh`
+
 ## Deployment / Docker
 
 ### SQLx
