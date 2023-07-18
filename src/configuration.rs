@@ -52,7 +52,7 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
 
     // Try to convert the configuration values it read into our Settings type
     let deserialized = settings.try_deserialize::<Settings>();
-    tracing::debug!("Settings: {:?}", deserialized);
+    println!("Settings: {:?}", deserialized);
     deserialized
 }
 
