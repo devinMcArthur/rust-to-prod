@@ -16,6 +16,17 @@ Must first prepare sqlx for compile checks
 
 `cargo sqlx prepare -- --lib`
 
+#### Migrations
+
+To create migration file
+`sqlx migrate add <migration_name>`
+
+To migrate local DB
+`SKIP_DOCKER=true ./scripts/init_db.sh`
+
+To migrate Production DB
+`DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME} sqlx migrate run`
+
 ## Tools
 
 ### cargo-expand
