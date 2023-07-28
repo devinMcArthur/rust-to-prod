@@ -8,6 +8,10 @@
 
 - `./scripts/init_db.sh`
 
+- './scripts/init_redis.sh`
+
+Ensure these are marked as executable: `chmod +x ./scripts/init_*.sh`
+
 ## Deployment / Docker
 
 ### SQLx

@@ -1,6 +1,9 @@
+use argon2::{password_hash::SaltString, Argon2, Params, PasswordHasher};
 use once_cell::sync::Lazy;
 use rust_to_prod::{
     configuration::{get_configuration, DatabaseSettings},
+    email_client::EmailClient,
+    issue_delivery_worker::{try_execute_task, ExecutionOutcome},
     startup::{get_connection_pool, Application},
     telemetry::{get_subscriber, init_subscriber},
 };
@@ -31,6 +34,9 @@ pub struct TestApp {
     pub db_pool: PgPool,
     pub email_server: MockServer,
     pub port: u16,
+    pub test_user: TestUser,
+    pub api_client: reqwest::Client,
+    pub email_client: EmailClient,
 }
 
 /// Confirmation links embedded in the request to the email API
@@ -42,13 +48,13 @@ pub struct ConfirmationLinks {
 
 impl TestApp {
     pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
-        reqwest::Client::new()
+        self.api_client
             .post(&format!("{}/subscriptions", &self.address))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
             .send()
             .await
-            .expect("Failed to execute request.")
+            .expect("Failed to execute request post_subscriptions")
     }
 
     /// Extract the confirmation links embedded in the request to the email API
@@ -76,6 +82,157 @@ impl TestApp {
         let html = get_link(&body["content"][1]["value"].as_str().unwrap());
 
         ConfirmationLinks { plain_text, html }
+    }
+
+    pub async fn post_login<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/login", &self.address))
+            // This `reqwest` method makes sure that the body is URL-encoded
+            // and the `Content-Type` header is set accordingly
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn post_successful_login(&self) -> reqwest::Response {
+        self.post_login(&serde_json::json!({
+            "username": self.test_user.username,
+            "password": self.test_user.password,
+        }))
+        .await
+    }
+
+    pub async fn get_login_html(&self) -> String {
+        self.api_client
+            .get(&format!("{}/login", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request")
+            .text()
+            .await
+            .unwrap()
+    }
+
+    pub async fn get_admin_dashboard(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/admin/dashboard", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn get_admin_dashboard_html(&self) -> String {
+        self.get_admin_dashboard().await.text().await.unwrap()
+    }
+
+    pub async fn get_change_password(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/admin/password", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn get_change_password_html(&self) -> String {
+        self.get_change_password().await.text().await.unwrap()
+    }
+
+    pub async fn post_change_password<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/password", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn get_publish_newsletter(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/admin/newsletters", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn get_publish_newsletter_html(&self) -> String {
+        self.get_publish_newsletter().await.text().await.unwrap()
+    }
+
+    pub async fn post_publish_newsletter<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/newsletters", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn post_logout(&self) -> reqwest::Response {
+        self.api_client
+            .post(&format!("{}/admin/logout", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
+
+    pub async fn dispatch_all_pending_emails(&self) {
+        loop {
+            if let ExecutionOutcome::EmptyQueue =
+                try_execute_task(&self.db_pool, &self.email_client)
+                    .await
+                    .unwrap()
+            {
+                break;
+            }
+        }
+    }
+
+    pub async fn drop_database(&self) {
+        // Get original connectino options
+        let original_options = self.db_pool.connect_options().clone();
+        let database_name = original_options.get_database().unwrap().to_string();
+        dbg!(&database_name);
+
+        // Close connection
+        self.db_pool.close().await;
+
+        // Reopen connection to the default db
+        let connection_options = original_options.database("postgres");
+        let mut connection = PgConnection::connect_with(&connection_options)
+            .await
+            .expect("Failed to connect to Postgres");
+
+        // Check for active connections to the database
+        let active_connections: Vec<(i32, String, String)> =
+            sqlx::query_as("SELECT pid, datname, usename FROM pg_stat_activity WHERE datname = $1")
+                .bind(&database_name)
+                .fetch_all(&mut connection)
+                .await
+                .expect("Failed to fetch active connections.");
+
+        for (pid, _, _) in active_connections {
+            sqlx::query("SELECT pg_terminate_backend($1)")
+                .bind(&pid)
+                .execute(&mut connection)
+                .await
+                .expect("Failed to terminate active connections.");
+        }
+
+        // Delete the old test database
+        connection
+            .execute(format!(r#"DROP DATABASE IF EXISTS "{}";"#, database_name).as_str())
+            .await
+            .expect("Failed to drop database.");
     }
 }
 
@@ -106,12 +263,24 @@ pub async fn spawn_app() -> TestApp {
     let application_port = application.port();
     let _ = tokio::spawn(application.run_until_stopped());
 
-    TestApp {
+    let api_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
+    let test_app = TestApp {
         address,
         port: application_port,
         db_pool: get_connection_pool(&configuration.database),
         email_server,
-    }
+        test_user: TestUser::generate(),
+        api_client,
+        email_client: configuration.email_client.client(),
+    };
+    test_app.test_user.store(&test_app.db_pool).await;
+
+    test_app
 }
 
 async fn configure_database(config: &DatabaseSettings) -> PgPool {
@@ -123,6 +292,10 @@ async fn configure_database(config: &DatabaseSettings) -> PgPool {
         .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
         .await
         .expect("Failed to create database.");
+    connection
+        .close()
+        .await
+        .expect("Failed to close connection");
 
     // Migrate database
     let connection_pool = PgPool::connect_with(config.with_db())
@@ -134,4 +307,49 @@ async fn configure_database(config: &DatabaseSettings) -> PgPool {
         .expect("Failed to migrate the database");
 
     connection_pool
+}
+
+pub struct TestUser {
+    pub user_id: Uuid,
+    pub username: String,
+    pub password: String,
+}
+
+impl TestUser {
+    pub fn generate() -> Self {
+        Self {
+            user_id: Uuid::new_v4(),
+            username: Uuid::new_v4().to_string(),
+            password: Uuid::new_v4().to_string(),
+        }
+    }
+
+    async fn store(&self, pool: &PgPool) {
+        let salt = SaltString::generate(&mut rand::thread_rng());
+        // Match parameters of the default password
+        let password_hash = Argon2::new(
+            argon2::Algorithm::Argon2id,
+            argon2::Version::V0x13,
+            Params::new(15000, 2, 1, None).unwrap(),
+        )
+        .hash_password(self.password.as_bytes(), &salt)
+        .unwrap()
+        .to_string();
+
+        sqlx::query!(
+            "INSERT INTO users (user_id, username, password_hash)
+            VALUES ($1, $2, $3)",
+            self.user_id,
+            self.username,
+            password_hash
+        )
+        .execute(pool)
+        .await
+        .expect("Failed to store test user.");
+    }
+}
+
+pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
+    assert_eq!(response.status().as_u16(), 303);
+    assert_eq!(response.headers().get("Location").unwrap(), location);
 }

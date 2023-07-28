@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <!-- This is equivalent to a HTTP header -->
+        <meta http-equiv="content-type" content="text/html; charset=utf-8">
+        <!-- Using HTMX -->
+        <script src="https://unpkg.com/htmx.org@1.9.3" integrity="sha384-lVb3Rd/Ca0AxaoZg5sACe8FJKF0tnUgR2Kd7ehUOG5GCcROv5uBIZsOqovBAcWua" crossorigin="anonymous"></script>
+        <title>Login</title>
+    </head>
+    <body>
+        <form hx-post="/login" hx-target="#error-div" hx-swap="innerHTML">
+            <label>Username
+                <input
+                    type="text"
+                    placeholder="Enter Username"
+                    name="username"
+                />
+            </label>
+
+            <label>Password
+                <input
+                    type="password"
+                    placeholder="Enter Password"
+                    name="password"
+                />
+            </label>
+
+            <button type="submit">Login</button>
+        </form>
+        <div id="error-div"></div>
+    </body>
+    <footer>
+        <script>
+            // Allows swap to happen on 401 error
+            document.body.addEventListener('htmx:beforeSwap', function (evt) {
+                if (evt.detail.xhr.status === 401) {
+                    evt.detail.shouldSwap = true;
+                }
+            });
+        </script>
+    </footer>
+</html>
